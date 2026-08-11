@@ -229,10 +229,71 @@ class BiliMusicRepository {
       } catch (_) {}
     }
 
+    try {
+      shelves.addAll(
+        await audioAreaShelves(maxShelves: _audioAreaMaxShelfCount),
+      );
+    } catch (_) {}
+
+    return shelves;
+  }
+
+  /// B站音频区官方榜单（音乐网站上的热歌榜 / 原创榜 / 各语言三日榜等）。
+  /// 每个榜单最多返回 3 首可播放的音频，逐首补充封面与歌手信息。
+  Future<List<Shelf>> audioAreaShelves({int maxShelves = 3}) async {
+    if (maxShelves <= 0) return const <Shelf>[];
+    final items = await _api.audioMenuRank(ps: 12);
+    final shelves = <Shelf>[];
+
+    for (final item in items.take(maxShelves)) {
+      final audios = _extractList(item['audios'] ?? item['songs'])
+          .map(_asMap)
+          .take(3)
+          .toList(growable: false);
+      final ids = audios
+          .map((audio) => _asInt(audio['id']))
+          .whereType<int>()
+          .toList(growable: false);
+      if (ids.isEmpty) continue;
+
+      final cards = <CardItem>[];
+      for (final id in ids) {
+        try {
+          cards.add(_cardFromAudioSongInfo(await _api.audioSongInfo(id)));
+        } catch (_) {}
+      }
+      if (cards.isEmpty) continue;
+
+      final title = item['title']?.toString().trim() ?? 'B站音频区';
+      shelves.add(
+        Shelf(title: title, items: cards.take(8).toList(growable: false)),
+      );
+    }
+
     return shelves;
   }
 
   Future<Shelf?> _musicShelfForZone(_MusicZone zone) async {
+    if (zone.searchOnly) {
+      final searchKeyword = zone.searchKeyword;
+      if (searchKeyword == null) return null;
+      try {
+        final items = await _api.searchVideos(
+          searchKeyword,
+          pageSize: 8,
+          tid: zone.searchTid,
+        );
+        final cards = items
+            .map(_cardFromPopularVideo)
+            .take(8)
+            .toList(growable: false);
+        if (cards.isNotEmpty) {
+          return Shelf(title: zone.title, items: cards);
+        }
+      } catch (_) {}
+      return null;
+    }
+
     try {
       final items = await _api.rankingVideos(rid: zone.rid, type: zone.type);
       if (items.isNotEmpty) {
@@ -1004,6 +1065,24 @@ class BiliMusicRepository {
     );
   }
 
+  CardItem _cardFromAudioSongInfo(Map<String, dynamic> data) {
+    final track = _trackFromAudioSongInfo(data);
+    return CardItem(
+      id: track.id,
+      title: track.title,
+      subtitle: track.artist.isNotEmpty
+          ? track.artist
+          : (track.playCount > 0 ? Format.count(track.playCount) : ''),
+      gradientSeed: track.gradientSeed,
+      coverUrl: track.coverUrl,
+      type: track.type,
+      duration: track.duration,
+      playCount: track.playCount,
+      audioId: track.audioId,
+      artist: track.artist,
+    );
+  }
+
   BiliFavoriteFolder _folderFromJson(Map<String, dynamic> item) {
     final mediaId = _asInt(item['id']) ?? _asInt(item['fid']) ?? 0;
     final fid = _asInt(item['fid']) ?? mediaId;
@@ -1062,6 +1141,28 @@ class BiliMusicRepository {
       webUrl: bvid == null
           ? null
           : Uri.parse('https://www.bilibili.com/video/$bvid'),
+    );
+  }
+
+  Track _trackFromAudioSongInfo(Map<String, dynamic> data) {
+    final sid = _asInt(data['id']);
+    final id = sid == null ? data.hashCode.toString() : 'au$sid';
+    return Track(
+      id: id,
+      title: _stripHtml(data['title']?.toString() ?? ''),
+      artist:
+          data['author']?.toString() ??
+          data['uname']?.toString() ??
+          '',
+      duration: Duration(seconds: _asInt(data['duration']) ?? 0),
+      type: ContentType.audio,
+      gradientSeed: id.hashCode.abs(),
+      coverUrl: _normalizeImageUrl(data['cover']?.toString()),
+      playCount: _asInt(_asMap(data['statistic'])['play']) ?? 0,
+      audioId: sid,
+      webUrl: sid == null
+          ? null
+          : Uri.parse('https://www.bilibili.com/audio/au$sid'),
     );
   }
 
@@ -1364,8 +1465,9 @@ const _audioQualitySort = <int>[
 
 const _musicRootRid = 3;
 const _musicRankRid = 1003;
-const _maxMusicShelfCount = 6;
+const _maxMusicShelfCount = 8;
 const _musicShelfBatchSize = 2;
+const _audioAreaMaxShelfCount = 2;
 
 const _musicSearchTypeIds = <int>{
   3,
@@ -1404,6 +1506,8 @@ const _musicRankingZones = <_MusicZone>[
   _MusicZone('翻唱', 31, searchKeyword: '翻唱'),
   _MusicZone('VOCALOID·UTAU', 30, searchKeyword: 'VOCALOID UTAU'),
   _MusicZone('演奏', 59, searchKeyword: '演奏'),
+  _MusicZone('纯音乐', 3, searchKeyword: '纯音乐', searchOnly: true),
+  _MusicZone('电子音乐', 3, searchKeyword: '电子音乐', searchOnly: true),
   _MusicZone('MV', 193, searchKeyword: 'MV'),
   _MusicZone('音乐现场', 29, searchKeyword: '音乐现场'),
   _MusicZone('乐评盘点', 243),
@@ -1413,12 +1517,18 @@ const _musicRankingZones = <_MusicZone>[
 ];
 
 class _MusicZone {
-  const _MusicZone(this.title, this.rid, {this.searchKeyword}) : type = 'all';
+  const _MusicZone(
+    this.title,
+    this.rid, {
+    this.searchKeyword,
+    this.searchOnly = false,
+  }) : type = 'all';
 
   final String title;
   final int rid;
   final String type;
   final String? searchKeyword;
+  final bool searchOnly;
 
   int get searchTid => rid == _musicRankRid ? _musicRootRid : rid;
 }

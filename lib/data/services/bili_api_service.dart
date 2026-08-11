@@ -185,6 +185,18 @@ class BiliApiService {
     return _checkedData(response);
   }
 
+  Future<List<Map<String, dynamic>>> audioMenuRank({
+    int pn = 1,
+    int ps = 12,
+  }) async {
+    final response = await _get(
+      BiliApiEndpoints.audioMenuRank,
+      query: <String, dynamic>{'pn': pn, 'ps': ps},
+    );
+    final data = _checkedData(response);
+    return _extractMapList(data['data'] ?? data['list'] ?? data['items']);
+  }
+
   Future<String> rawText(String url) async {
     final response = await _dio.getUri<String>(
       Uri.parse(_normalizeExternalUrl(url)),
