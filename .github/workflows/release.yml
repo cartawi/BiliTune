@@ -108,6 +108,11 @@ jobs:
     name: Build signed Android APK
     runs-on: ubuntu-latest
     needs: metadata
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -123,20 +128,15 @@ jobs:
         run: flutter analyze
 
       - name: Decode release keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-keystore.jks
 
       - name: Build signed release APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
         env:
           ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release-keystore.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
@@ -146,7 +146,7 @@ jobs:
             --build-number "${{ needs.metadata.outputs.build_number }}"
 
       - name: Build release APK (debug-signed fallback)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 == '' }}
+        if: env.ANDROID_KEYSTORE_BASE64 == ''
         run: >
           flutter build apk --release
           --build-name "${{ needs.metadata.outputs.version_name }}"
