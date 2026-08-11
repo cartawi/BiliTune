@@ -56,6 +56,10 @@ android {
         release {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                // 无生产签名密钥时（例如 fork 未配置 secrets），
+                // 使用 debug 签名兜底，保证仍能打包出可安装的 APK。
+                signingConfig = signingConfigs.getByName("debug")
             }
         }
     }
